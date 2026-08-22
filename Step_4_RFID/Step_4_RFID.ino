@@ -13,8 +13,16 @@ struct Coordinate {
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key key;
 
+// Store the 3 animal coordinates
+Coordinate animalTargets[3];
+
+
+// ------------------------------------------------
+// SETUP
+// ------------------------------------------------
 
 void setup() {
+
   Serial.begin(9600);
   while (!Serial);
 
@@ -22,22 +30,35 @@ void setup() {
   mfrc522.PCD_Init();
   delay(4);
 
-  // Factory default Key A = FF FF FF FF FF FF
+  // Factory default Key A
   for (byte i = 0; i < 6; i++) {
     key.keyByte[i] = 0xFF;
   }
 
-  Serial.println(F("Tap an RFID tag"));
+  Serial.println(F("Tap the START tag"));
 }
 
 
-// Decode the information stored in block 56.
+// ------------------------------------------------
+// FIND THE SECTOR TRAILER FOR A BLOCK
+// ------------------------------------------------
+
+byte trailerBlockFor(byte block) {
+  return (block / 4) * 4 + 3;
+}
+
+
+// ------------------------------------------------
+// DECODE A COORDINATE BLOCK
 //
 // Bytes 0-3  = X coordinate
 // Bytes 8-11 = Y coordinate
 //
-// The values are stored in big-endian order.
+// Values are stored in big-endian order.
+// ------------------------------------------------
+
 Coordinate decodeCoordinateBlock(byte* block) {
+
   Coordinate c;
 
   c.x = ((long)block[0] << 24) |
@@ -54,89 +75,109 @@ Coordinate decodeCoordinateBlock(byte* block) {
 }
 
 
-// Try to authenticate and read block 56.
-bool readTagCoordinate(MFRC522 &reader, Coordinate &out) {
+// ------------------------------------------------
+// READ THE 3 ANIMAL LOCATIONS FROM THE START TAG
+//
+// Block 52 = Animal 1
+// Block 53 = Animal 2
+// Block 54 = Animal 3
+// ------------------------------------------------
 
-  const byte BLOCK = 56;
+bool readAnimalLocations(MFRC522 &reader, MFRC522::MIFARE_Key &key) {
 
-  // Block 59 is the sector trailer for sector 14.
-  const byte TRAILER = 59;
+  const byte blocks[3] = {52, 53, 54};
 
-  // Authenticate sector 14 using Key A
-  MFRC522::StatusCode status = reader.PCD_Authenticate(
-    MFRC522::PICC_CMD_MF_AUTH_KEY_A,
-    TRAILER,
-    &key,
-    &(reader.uid)
-  );
+  for (byte i = 0; i < 3; i++) {
 
-  // Stop if authentication failed
-  if (status != MFRC522::STATUS_OK) {
-    Serial.print(F("Authentication failed: "));
-    Serial.println(reader.GetStatusCodeName(status));
-    return false;
+    byte trailer = trailerBlockFor(blocks[i]);
+
+    // Authenticate the sector using Key A
+    MFRC522::StatusCode status = reader.PCD_Authenticate(
+      MFRC522::PICC_CMD_MF_AUTH_KEY_A,
+      trailer,
+      &key,
+      &(reader.uid)
+    );
+
+    if (status != MFRC522::STATUS_OK) {
+
+      Serial.print(F("Authentication failed for block "));
+      Serial.println(blocks[i]);
+
+      return false;
+    }
+
+    // Read the block
+    byte buffer[18];
+    byte size = sizeof(buffer);
+
+    status = reader.MIFARE_Read(blocks[i], buffer, &size);
+
+    if (status != MFRC522::STATUS_OK) {
+
+      Serial.print(F("Read failed for block "));
+      Serial.println(blocks[i]);
+
+      return false;
+    }
+
+    // Convert the raw bytes into a coordinate
+    animalTargets[i] = decodeCoordinateBlock(buffer);
   }
-
-  byte buffer[18];
-  byte size = sizeof(buffer);
-
-  // Read block 56
-  status = reader.MIFARE_Read(BLOCK, buffer, &size);
-
-  // Stop if the read failed
-  if (status != MFRC522::STATUS_OK) {
-    Serial.print(F("Read failed: "));
-    Serial.println(reader.GetStatusCodeName(status));
-    return false;
-  }
-
-  // Convert the raw bytes into X and Y coordinates
-  out = decodeCoordinateBlock(buffer);
 
   return true;
 }
 
 
+// ------------------------------------------------
+// LOOP
+// ------------------------------------------------
+
 void loop() {
 
   // Check whether a new RFID tag is present
-  if (!mfrc522.PICC_IsNewCardPresent() ||
-      !mfrc522.PICC_ReadCardSerial()) {
+  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
     return;
   }
 
-  Serial.println(F("Tag detected."));
+  Serial.println(F("START tag detected."));
 
 
   // ------------------------------------------------
-  // READ AND DECODE THE COORDINATE FROM BLOCK 56
+  // READ THE 3 ANIMAL LOCATIONS
   // ------------------------------------------------
 
-  Coordinate coordinate;
+  if (readAnimalLocations(mfrc522, key)) {
 
-  if (readTagCoordinate(mfrc522, coordinate)) {
+    Serial.println(F("Animal locations:"));
 
-    Serial.println(F("Coordinate detected:"));
+    for (byte i = 0; i < 3; i++) {
 
-    Serial.print(F("X = "));
-    Serial.println(coordinate.x);
+      Serial.print(F("Animal "));
+      Serial.print(i + 1);
 
-    Serial.print(F("Y = "));
-    Serial.println(coordinate.y);
+      Serial.print(F(": X = "));
+      Serial.print(animalTargets[i].x);
+
+      Serial.print(F(", Y = "));
+      Serial.println(animalTargets[i].y);
+    }
 
   } else {
 
-    Serial.println(F("Could not read block 56."));
+    Serial.println(F("Could not read animal locations."));
   }
 
 
-  // Tell the tag that we are finished
-  mfrc522.PICC_HaltA();
+  // ------------------------------------------------
+  // FINISH RFID SESSION
+  // ------------------------------------------------
 
-  // End any active encryption/authentication session
+  mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
 
   Serial.println(F("--- scan complete ---"));
+  Serial.println(F("Remove tag and re-tap to scan again."));
 
   delay(500);
 }
