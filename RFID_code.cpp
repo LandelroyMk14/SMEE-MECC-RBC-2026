@@ -1,6 +1,8 @@
 /* INFO
 RFID CODE DUMP - copy into arduino to test
 Abandoned the vector idea to focus on reading info first
+ideally store all info in 2D vector
+
 BLOCK 56 (COORDINATE INFO) v1 - straight from Gemini
 BLOCK 57 (ANIMAL INFO) - yet to be implemented
 */
