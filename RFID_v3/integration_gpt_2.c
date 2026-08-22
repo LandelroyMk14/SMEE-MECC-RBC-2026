@@ -526,7 +526,7 @@ void loop()
             // friendliness == 1 means friendly.
             // Any other value means not friendly.
 
-            if (friendliness != 1)
+            if (friendliness != 3)
             {
                 // ---------------------------------------------
                 // NOT FRIENDLY
