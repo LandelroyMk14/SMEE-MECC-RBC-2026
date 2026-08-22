@@ -45,11 +45,11 @@
             int turn = (required - orientation + 4) % 4;
 
             if (turn == 1)
-                moves[n++] = 'R';
+                moves[n++] = 'L';
             else if (turn == 2)
                 moves[n++] = 'B';
             else if (turn == 3)
-                moves[n++] = 'L';
+                moves[n++] = 'R';
 
             orientation = required;
 
@@ -69,11 +69,11 @@
             int turn = (required - orientation + 4) % 4;
 
             if (turn == 1)
-                moves[n++] = 'R';
+                moves[n++] = 'L';
             else if (turn == 2)
                 moves[n++] = 'B';
             else if (turn == 3)
-                moves[n++] = 'L';
+                moves[n++] = 'R';
 
             orientation = required;
 
@@ -132,6 +132,8 @@ void loop() {
   int currentX = -1;
   int currentY = -1;
 
+  robot_state.position[0] = currentX;
+  robot_state.position[1] = currentY;
   int anim1[2] = {0, 0};
 
 
