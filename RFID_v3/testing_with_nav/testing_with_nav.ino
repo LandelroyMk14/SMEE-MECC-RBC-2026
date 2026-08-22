@@ -136,7 +136,7 @@ void loop() {
 
 
 
-
+ int anim1[2] = {0, 0};
 
   // 1. Read current location from Block 56
   if (readBlockData(56, buffer)) {
@@ -145,7 +145,7 @@ void loop() {
 
       robot_state.position[0] = currentX;
   robot_state.position[1] = currentY;
-  int anim1[2] = {0, 0};
+ 
 
 
 
