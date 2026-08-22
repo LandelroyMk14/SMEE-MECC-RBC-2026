@@ -6,24 +6,40 @@
 
 // ------------------------------------------------
 // START TAG COORDINATES
-// CHANGE THESE TO THE ACTUAL START COORDINATES
 // ------------------------------------------------
 
 #define START_X 0
 #define START_Y 0
 
 
-// A coordinate contains an X and Y position
+// ------------------------------------------------
+// DATA STRUCTURES
+// ------------------------------------------------
+
 struct Coordinate {
   long x;
   long y;
 };
 
+
+// ------------------------------------------------
+// GLOBAL ROBOT SUBSYSTEM VARIABLES
+// Use these variables to access data across subsystems.
+// ------------------------------------------------
+
+Coordinate currentPinCoordinate;  // Current X and Y position of the robot's scanned pin
+int pinFriendlinessRaw;           // Raw friendliness integer value (3 = friendly, 2 = not friendly)
+bool isCurrentAnimalFriendly;     // True if friendly, false if dangerous or unknown
+
+Coordinate animalTargets[3];      // The 3 global target coordinates of the animals
+
+
+// ------------------------------------------------
+// HARDWARE INSTANCES
+// ------------------------------------------------
+
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 MFRC522::MIFARE_Key key;
-
-// Store the 3 animal coordinates
-Coordinate animalTargets[3];
 
 
 // ------------------------------------------------
@@ -85,18 +101,46 @@ Coordinate decodeCoordinateBlock(byte* block) {
 
 
 // ------------------------------------------------
-// READ A COORDINATE FROM A TAG
+// DECODE FRIENDLINESS
 //
-// The coordinate is stored in block 56.
+// 3 = friendly
+// 2 = not friendly
+// Anything else = unreadable/unknown
+//
+// Value is stored in first 4 bytes,
+// big-endian.
 // ------------------------------------------------
 
-bool readTagCoordinate(MFRC522 &reader, MFRC522::MIFARE_Key &key,
-                       Coordinate &out) {
+int decodeFriendliness(byte* block) {
 
-  const byte BLOCK = 56;
-  const byte TRAILER = trailerBlockFor(BLOCK);
+  long value =
+    ((long)block[0] << 24) |
+    ((long)block[1] << 16) |
+    ((long)block[2] << 8) |
+    block[3];
 
-  // Authenticate sector containing block 56
+  return (int)value;
+}
+
+
+// ------------------------------------------------
+// READ COORDINATE (block 56) AND FRIENDLINESS (block 57)
+// FROM THE CURRENT TAG.
+//
+// Blocks 56 and 57 live in the SAME sector (trailer 59),
+// so we authenticate that sector ONCE and read both blocks
+// from the same session. Authenticating twice for two blocks
+// in the same sector desyncs the crypto1 stream on this library
+// and silently returns zeroed buffers instead of an error.
+// ------------------------------------------------
+
+bool readTagCoordinateAndFriendliness(MFRC522 &reader,
+                                       MFRC522::MIFARE_Key &key,
+                                       Coordinate &coordOut,
+                                       int &friendlinessOut) {
+
+  const byte TRAILER = trailerBlockFor(56); // == trailerBlockFor(57)
+
   MFRC522::StatusCode status = reader.PCD_Authenticate(
     MFRC522::PICC_CMD_MF_AUTH_KEY_A,
     TRAILER,
@@ -105,31 +149,46 @@ bool readTagCoordinate(MFRC522 &reader, MFRC522::MIFARE_Key &key,
   );
 
   if (status != MFRC522::STATUS_OK) {
-
-    Serial.print(F("Authentication failed for block 56: "));
+    Serial.print(F("Authentication failed for sector: "));
     Serial.println(reader.GetStatusCodeName(status));
-
     return false;
   }
 
-  // Read block 56
   byte buffer[18];
   byte size = sizeof(buffer);
 
-  status = reader.MIFARE_Read(BLOCK, buffer, &size);
-
+  // Block 56 — coordinate
+  status = reader.MIFARE_Read(56, buffer, &size);
   if (status != MFRC522::STATUS_OK) {
-
     Serial.print(F("Could not read block 56: "));
     Serial.println(reader.GetStatusCodeName(status));
-
     return false;
   }
+  coordOut = decodeCoordinateBlock(buffer);
 
-  // Decode X and Y
-  out = decodeCoordinateBlock(buffer);
+  // Block 57 — friendliness (same authenticated session)
+  size = sizeof(buffer);
+  status = reader.MIFARE_Read(57, buffer, &size);
+  if (status != MFRC522::STATUS_OK) {
+    Serial.print(F("Could not read block 57: "));
+    Serial.println(reader.GetStatusCodeName(status));
+    return false;
+  }
+  friendlinessOut = decodeFriendliness(buffer);
 
   return true;
+}
+
+
+// ------------------------------------------------
+// CHECK IF ANIMAL IS VALID
+//
+// 3 = friendly
+// ------------------------------------------------
+
+bool isAnimalValid(int friendlinessValue) {
+
+  return friendlinessValue == 3;
 }
 
 
@@ -217,39 +276,47 @@ void loop() {
 
 
   // ------------------------------------------------
-  // READ THE CURRENT TAG'S COORDINATE
+  // READ COORDINATE + FRIENDLINESS IN ONE AUTHENTICATED SESSION
   // ------------------------------------------------
 
-  Coordinate currentCoordinate;
+  if (readTagCoordinateAndFriendliness(mfrc522, key, currentPinCoordinate, pinFriendlinessRaw)) {
 
-  if (readTagCoordinate(mfrc522, key, currentCoordinate)) {
-
-    Serial.println(F("Current tag coordinate:"));
-
+    Serial.println(F("Current tag coordinate saved:"));
     Serial.print(F("X = "));
-    Serial.println(currentCoordinate.x);
-
+    Serial.println(currentPinCoordinate.x);
     Serial.print(F("Y = "));
-    Serial.println(currentCoordinate.y);
+    Serial.println(currentPinCoordinate.y);
+
+    Serial.print(F("Friendliness value saved = "));
+    Serial.println(pinFriendlinessRaw);
+
+    // Evaluate system safety flags
+    isCurrentAnimalFriendly = isAnimalValid(pinFriendlinessRaw);
+
+    if (isCurrentAnimalFriendly) {
+      Serial.println(F("Status: FRIENDLY"));
+    } else if (pinFriendlinessRaw == 2) {
+      Serial.println(F("Status: NOT FRIENDLY"));
+    } else {
+      Serial.println(F("Status: UNKNOWN - invalid value"));
+    }
 
 
     // ------------------------------------------------
     // CHECK IF THIS IS THE START TAG
     // ------------------------------------------------
 
-    if (isStartTag(currentCoordinate)) {
+    if (isStartTag(currentPinCoordinate)) {
 
-      Serial.println(F("START TAG detected!"));
-      Serial.println(F("Reading animal locations..."));
-
+      Serial.println(F("Start tag verified."));
 
       // ------------------------------------------------
-      // READ THE 3 ANIMAL LOCATIONS
+      // READ AND STORE THE 3 ANIMAL LOCATIONS
       // ------------------------------------------------
 
       if (readAnimalLocations(mfrc522, key)) {
 
-        Serial.println(F("Animal locations:"));
+        Serial.println(F("Animal target coordinates updated:"));
 
         for (byte i = 0; i < 3; i++) {
 
@@ -267,16 +334,10 @@ void loop() {
 
         Serial.println(F("Could not read animal locations."));
       }
-
-    } else {
-
-      Serial.println(F("This is not the START tag."));
-      Serial.println(F("Animal locations will not be read."));
     }
 
   } else {
-
-    Serial.println(F("Could not read current tag coordinate."));
+    Serial.println(F("Failed to read tag coordinate/friendliness."));
   }
 
 
