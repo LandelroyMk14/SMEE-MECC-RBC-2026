@@ -81,7 +81,6 @@
                 moves[n++] = 'F';
         }
 
-        state->direction = orientation;
         moves[n] = '\0';
         return moves;
     }
@@ -149,7 +148,7 @@ void loop() {
   int anim1[2] = {0, 0};
 
 
-  
+
     Serial.print("Current Location: (");
     Serial.print(currentX);
     Serial.print(", ");
