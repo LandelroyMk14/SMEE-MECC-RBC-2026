@@ -132,9 +132,7 @@ void loop() {
   int currentX = -1;
   int currentY = -1;
 
-  robot_state.position[0] = currentX;
-  robot_state.position[1] = currentY;
-  int anim1[2] = {0, 0};
+
 
 
 
@@ -144,6 +142,14 @@ void loop() {
   // 1. Read current location from Block 56
   if (readBlockData(56, buffer)) {
     parseCoordinates(buffer, currentX, currentY);
+
+
+      robot_state.position[0] = currentX;
+  robot_state.position[1] = currentY;
+  int anim1[2] = {0, 0};
+
+
+  
     Serial.print("Current Location: (");
     Serial.print(currentX);
     Serial.print(", ");
