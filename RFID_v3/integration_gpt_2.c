@@ -63,6 +63,9 @@ bool animal_reached = false;
 // Is the robot currently returning a fetched animal to (0,0)?
 bool returning_home = false;
 
+// Has friendliness already been checked for the current animal?
+bool friendliness_checked = false;
+
 // Has the robot completed all animals?
 bool finished = false;
 
@@ -70,12 +73,6 @@ bool finished = false;
 // ============================================================
 // ROBOT STATE
 // ============================================================
-
-// Global so both setup() and loop() can access it
-//
-// Initial state:
-// - Facing XPOS
-// - Position (0, 0)
 
 state robot_state = {XPOS, {0, 0}};
 
@@ -132,22 +129,10 @@ bool readCoordinates(byte blockAddr, int location[2])
 // NAVIGATION FUNCTION
 // ============================================================
 
-// Calculates a route from the robot's current state
-// to the destination.
-//
-// Does NOT move the robot or update its position.
-//
-// Returns a string containing:
-// L = turn left
-// R = turn right
-// B = turn 180 degrees
-// F = move forward
-
 char *navigate(state *robot, int dest[2])
 {
     static char moves[100];
 
-    // Clear previous route
     moves[0] = '\0';
 
     int orientation = robot->direction;
@@ -221,11 +206,8 @@ char *navigate(state *robot, int dest[2])
 
     moves[n] = '\0';
 
-    // IMPORTANT:
-    // We do NOT update robot->position here.
-    //
-    // The robot's actual position is updated when an RFID
-    // tag is scanned.
+    // Position is NOT updated here.
+    // RFID scans update the robot's actual position.
 
     return moves;
 }
@@ -248,6 +230,7 @@ void setTargetAnimal()
 
     animal_reached = false;
     returning_home = false;
+    friendliness_checked = false;
 
     Serial.print("Target animal: ");
     Serial.println(a + 1);
@@ -284,15 +267,57 @@ void setTargetHome()
 
 
 // ============================================================
-// CHECK WHETHER ROBOT HAS REACHED TARGET
+// CHECK WHETHER ROBOT IS AT A LOCATION
+// ============================================================
+
+bool atLocation(int location[2])
+{
+    return (
+        current_location[0] == location[0] &&
+        current_location[1] == location[1]
+    );
+}
+
+
+// ============================================================
+// CHECK WHETHER ROBOT IS AT TARGET
 // ============================================================
 
 bool atTarget()
 {
-    return (
-        current_location[0] == target_animal[0] &&
-        current_location[1] == target_animal[1]
+    return atLocation(target_animal);
+}
+
+
+// ============================================================
+// CHECK WHETHER ROBOT IS ADJACENT TO ANIMAL
+// ============================================================
+
+// Returns true if the robot is exactly one grid square
+// away from the current animal.
+//
+// Valid examples:
+//
+// Animal: (3,3)
+// Robot:  (2,3) -> adjacent
+// Robot:  (4,3) -> adjacent
+// Robot:  (3,2) -> adjacent
+// Robot:  (3,4) -> adjacent
+//
+// Robot:  (2,2) -> NOT adjacent
+
+bool adjacentToTarget()
+{
+    int dx = abs(
+        current_location[0] - target_animal[0]
     );
+
+    int dy = abs(
+        current_location[1] - target_animal[1]
+    );
+
+
+    return (dx + dy == 1 || abs(dx * dy) == 1);
 }
 
 
@@ -326,7 +351,9 @@ void setup()
 
 void loop()
 {
-    // If all animals have been considered/fetched, stop processing
+    // If all animals have been considered/fetched,
+    // stop processing.
+
     if (finished)
     {
         return;
@@ -458,202 +485,236 @@ void loop()
     }
 
 
-    // --------------------------------------------------------
+    // ========================================================
     // 3. READ FRIENDLINESS
-    // --------------------------------------------------------
+    // ========================================================
+
+    // Friendliness is ONLY read when:
+    //
+    // 1. Animal locations have been loaded
+    // 2. We are NOT returning home
+    // 3. We have NOT already checked this animal
+    // 4. The robot is adjacent to the animal
+    //
+    // This prevents the friendliness block from being read
+    // while travelling around unrelated map locations.
 
     byte buffer[18];
 
-    if (readBlockData(57, buffer))
+    byte friendliness = 0;
+
+    if (animals_loaded &&
+        !returning_home &&
+        !friendliness_checked &&
+        adjacentToTarget())
     {
-        byte friendliness = buffer[15];
-
-        Serial.print("Friendliness: ");
-        Serial.println(friendliness);
-
-
-        // ----------------------------------------------------
-        // 4. PROCESS CURRENT TARGET
-        // ----------------------------------------------------
-
-        if (animals_loaded && !finished)
+        if (readBlockData(57, buffer))
         {
+            friendliness = buffer[15];
+
+            Serial.print("Friendliness: ");
+            Serial.println(friendliness);
+
+            friendliness_checked = true;
+
+
             // =================================================
-            // CASE A:
-            // Robot is returning a friendly animal to (0,0)
+            // 4. PROCESS FRIENDLINESS
             // =================================================
 
-            if (returning_home)
+            // ASSUMPTION:
+            // friendliness == 1 means friendly.
+            // Any other value means not friendly.
+
+            if (friendliness != 1)
             {
-                if (atTarget())
-                {
-                    Serial.println();
-                    Serial.println("Animal returned to (0,0).");
-
-                    Serial.print("Animal ");
-                    Serial.print(a + 1);
-                    Serial.println(" successfully delivered.");
-
-                    // Move onto the next animal
-                    a++;
-
-                    animal_reached = false;
-                    returning_home = false;
-
-                    if (a >= 3)
-                    {
-                        finished = true;
-
-                        Serial.println();
-                        Serial.println("================================");
-                        Serial.println("All animals processed!");
-                        Serial.println("================================");
-                    }
-                    else
-                    {
-                        setTargetAnimal();
-
-                        char *moves = navigate(
-                            &robot_state,
-                            target_animal
-                        );
-
-                        Serial.print("Moves to animal ");
-                        Serial.print(a + 1);
-                        Serial.print(": ");
-                        Serial.println(moves);
-                    }
-                }
-            }
-
-
-            // =================================================
-            // CASE B:
-            // Robot has reached an animal
-            // =================================================
-
-            else if (atTarget() && !animal_reached)
-            {
-                animal_reached = true;
+                // ---------------------------------------------
+                // NOT FRIENDLY
+                // ---------------------------------------------
 
                 Serial.print("Animal ");
                 Serial.print(a + 1);
-                Serial.println(" reached!");
+                Serial.println(" is not friendly.");
 
+                Serial.print("Skipping animal ");
+                Serial.println(a + 1);
 
-                // ---------------------------------------------
-                // Check friendliness
-                // ---------------------------------------------
+                a++;
 
-                // ASSUMPTION:
-                // friendliness == 1 means friendly.
-                // Any other value means not friendly.
-
-                if (friendliness != 1)
+                if (a >= 3)
                 {
-                    // -----------------------------------------
-                    // NOT FRIENDLY
-                    // -----------------------------------------
+                    finished = true;
 
-                    Serial.print("Animal ");
-                    Serial.print(a + 1);
-                    Serial.println(" is not friendly.");
-
-                    Serial.print("Skipping animal ");
-                    Serial.println(a + 1);
-
-                    // Move directly to the next animal
-                    a++;
-
-                    animal_reached = false;
-
-                    if (a >= 3)
-                    {
-                        finished = true;
-
-                        Serial.println();
-                        Serial.println("================================");
-                        Serial.println("All animals processed!");
-                        Serial.println("================================");
-                    }
-                    else
-                    {
-                        setTargetAnimal();
-
-                        char *moves = navigate(
-                            &robot_state,
-                            target_animal
-                        );
-
-                        Serial.print("Moves to animal ");
-                        Serial.print(a + 1);
-                        Serial.print(": ");
-                        Serial.println(moves);
-                    }
+                    Serial.println();
+                    Serial.println("================================");
+                    Serial.println("All animals processed!");
+                    Serial.println("================================");
                 }
-
-
-                // ---------------------------------------------
-                // FRIENDLY
-                // ---------------------------------------------
-
                 else
                 {
-                    Serial.print("Animal ");
+                    setTargetAnimal();
+
+                    char *moves = navigate(
+                        &robot_state,
+                        target_animal
+                    );
+
+                    Serial.print("Moves to animal ");
                     Serial.print(a + 1);
-                    Serial.println(" is friendly!");
-
-                    // -----------------------------------------
-                    // FETCH ANIMAL
-                    // -----------------------------------------
-
-                    Serial.print("Fetching animal ");
-                    Serial.println(a + 1);
-
-                    // TODO:
-                    // Put claw/animal-fetching code here.
-                    //
-                    // For now, fetching is assumed to succeed
-                    // immediately.
-
-                    Serial.print("Animal ");
-                    Serial.print(a + 1);
-                    Serial.println(" fetched.");
-
-                    // -----------------------------------------
-                    // Return animal to (0,0)
-                    // -----------------------------------------
-
-                    setTargetHome();
+                    Serial.print(": ");
+                    Serial.println(moves);
                 }
             }
 
 
-            // =================================================
-            // CASE C:
-            // Robot is travelling toward an animal
-            // =================================================
+            // -----------------------------------------------
+            // FRIENDLY
+            // -----------------------------------------------
 
-            else if (!atTarget())
+            else
             {
+                Serial.print("Animal ");
+                Serial.print(a + 1);
+                Serial.println(" is friendly!");
+
+                Serial.print("Fetching animal ");
+                Serial.println(a + 1);
+
+
+                // TODO:
+                // Actual claw/fetching code goes here.
+                //
+                // For now, fetching is assumed to succeed
+                // immediately.
+
+                Serial.print("Animal ");
+                Serial.print(a + 1);
+                Serial.println(" fetched.");
+
+
+                // -------------------------------------------
+                // Mark animal as fetched
+                // -------------------------------------------
+
+                animal_reached = true;
+
+
+                // -------------------------------------------
+                // Return animal to (0,0)
+                // -------------------------------------------
+
+                setTargetHome();
+            }
+        }
+        else
+        {
+            Serial.println("Failed to read friendliness.");
+        }
+    }
+
+
+    // ========================================================
+    // 5. RETURN HOME
+    // ========================================================
+
+    if (animals_loaded && !finished && returning_home)
+    {
+        // The animal is only considered delivered when
+        // an RFID scan explicitly reports (0,0).
+
+        if (current_location[0] == 0 &&
+            current_location[1] == 0)
+        {
+            Serial.println();
+            Serial.println("================================");
+
+            Serial.print("Animal ");
+            Serial.print(a + 1);
+            Serial.println(" returned to (0,0).");
+
+            Serial.println("================================");
+
+
+            animal_reached = false;
+            returning_home = false;
+
+
+            // -----------------------------------------------
+            // Move to next animal
+            // -----------------------------------------------
+
+            a++;
+
+            if (a >= 3)
+            {
+                finished = true;
+
+                Serial.println();
+                Serial.println("================================");
+                Serial.println("All animals processed!");
+                Serial.println("================================");
+            }
+            else
+            {
+                setTargetAnimal();
+
                 char *moves = navigate(
                     &robot_state,
                     target_animal
                 );
 
-                if (returning_home)
-                {
-                    Serial.print("Moves home: ");
-                }
-                else
-                {
-                    Serial.print("Moves to animal ");
-                    Serial.print(a + 1);
-                    Serial.print(": ");
-                }
-
+                Serial.print("Moves to animal ");
+                Serial.print(a + 1);
+                Serial.print(": ");
                 Serial.println(moves);
             }
+        }
+    }
+
+
+    // ========================================================
+    // 6. NAVIGATION
+    // ========================================================
+
+    if (animals_loaded && !finished)
+    {
+        // If returning home, continue navigating to (0,0)
+        if (returning_home &&
+            !atTarget())
+        {
+            char *moves = navigate(
+                &robot_state,
+                target_animal
+            );
+
+            Serial.print("Moves home: ");
+            Serial.println(moves);
+        }
+
+        // If travelling to an animal, navigate until
+        // adjacent to it.
+        else if (!returning_home &&
+                 !adjacentToTarget())
+        {
+            // ------------------------------------------------
+            // Navigate to an adjacent square.
+            //
+            // IMPORTANT:
+            // navigate() currently targets the animal itself.
+            // This section therefore needs a separate adjacent
+            // destination if the robot must physically stop
+            // beside the animal rather than on it.
+            // ------------------------------------------------
+
+            char *moves = navigate(
+                &robot_state,
+                target_animal
+            );
+
+            Serial.print("Moves toward animal ");
+            Serial.print(a + 1);
+            Serial.print(": ");
+            Serial.println(moves);
         }
     }
 
