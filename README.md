@@ -1,4 +1,4 @@
-Step\_4\_RFID folder - code for extracting coordinate information
+RFID\_v3 - Current version for RFID code
+RFID\_oldcodes - All old RFID codes 
 
-RFID\_code - redundant code due to pin assignments
 
