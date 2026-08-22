@@ -107,17 +107,19 @@ Coordinate decodeCoordinateBlock(byte* block) {
 // 2 = not friendly
 // Anything else = unreadable/unknown
 //
-// Value is stored in first 4 bytes,
-// big-endian.
+// CORRECTED: the value sits in the LAST 4 bytes
+// of the block (bytes 12-15), big-endian —
+// confirmed against a real dump where a "2" showed
+// up at byte 15, not byte 3.
 // ------------------------------------------------
 
 int decodeFriendliness(byte* block) {
 
   long value =
-    ((long)block[0] << 24) |
-    ((long)block[1] << 16) |
-    ((long)block[2] << 8) |
-    block[3];
+    ((long)block[12] << 24) |
+    ((long)block[13] << 16) |
+    ((long)block[14] << 8) |
+    block[15];
 
   return (int)value;
 }
