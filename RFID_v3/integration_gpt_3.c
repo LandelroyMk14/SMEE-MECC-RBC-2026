@@ -1,6 +1,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <stdlib.h>
+#include <Servo.h>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
 
 
 // ============================================================
@@ -35,6 +36,16 @@ typedef struct {
 
 // [0] = X coordinate
 // [1] = Y coordinate
+
+// ============================================================
+// CLAW DEFINITIONS
+// ============================================================
+Servo right_servo;
+Servo left_servo;
+#define right_claw 6
+#define left_claw 4
+
+
 
 int current_location[2] = {-1, -1};
 
@@ -315,6 +326,24 @@ void turnTowards(state *robot, int target[2])
 }
 
 // ============================================================
+// CLAW FUNCTIONS
+// ============================================================
+
+int open = 90;    // variable to store the servo position
+int right_close = 0;
+int left_close = 180;
+
+void open_servos() {
+  right_servo.write(open);
+  left_servo.write(open);
+}
+
+void close_servos() {
+  right_servo.write(right_close);
+  left_servo.write(left_close);
+}
+
+// ============================================================
 // SET TARGET ANIMAL
 // ============================================================
 
@@ -443,6 +472,10 @@ void setup()
 
     Serial.println("RFID Scanner Initialized.");
     Serial.println("Ready to scan tags...");
+
+    //SERVO SETUP
+    right_servo.attach(right_claw);
+    left_servo.attach(left_claw);
 }
 
 
@@ -454,12 +487,13 @@ void loop()
 {
     // If all animals have been considered/fetched,
     // stop processing.
-
     if (finished)
     {
         return;
     }
 
+    //initially open the claw
+    open_servos();
 
     // --------------------------------------------------------
     // WAIT FOR A NEW RFID TAG
@@ -694,6 +728,10 @@ void loop()
                 // For now, fetching is assumed to succeed
                 // immediately.
 
+                //CLAW CODE: pick up animal
+                open_servos();
+                close_servos();
+
                 Serial.print("Animal ");
                 Serial.print(a + 1);
                 Serial.println(" fetched.");
@@ -741,7 +779,8 @@ void loop()
 
             Serial.println("================================");
 
-
+            //CLAW CODE: Drop animal
+            open_servos();
             animal_reached = false;
             returning_home = false;
 
