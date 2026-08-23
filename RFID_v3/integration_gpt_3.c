@@ -29,6 +29,14 @@ typedef struct {
     int position[2];
 } state;
 
+// Motor control pins
+const int enA = 3;  // Enable Motor A (PWM)
+const int in1 = 7;  // Input 1 Motor A
+const int in2 = 8;  // Input 2 Motor A
+
+const int enB = 5;  // Enable Motor B (PWM)
+const int in3 = 9;  // Input 1 Motor B
+const int in4 = 10; // Input 2 Motor B
 
 // ============================================================
 // STORAGE
@@ -140,23 +148,64 @@ bool readCoordinates(byte blockAddr, int location[2])
 // NAVIGATION FUNCTION
 // ============================================================
 
-void moveForward(state *robot)
-{
-    //code here
+// Helper function to stop both motors cleanly
+void stopMotors() {
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  analogWrite(enA, 0);
 
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  analogWrite(enB, 0);
 }
 
-void turnLeft(state *robot)
+void moveForward(float duration, state *robot) // duration should be 300ms
 {
-    //code here
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 128);
 
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, 128);
+
+    // UL multiplier prevents integer overflow on 16-bit boards
+    delay(duration); 
+    stopMotors();
+}
+
+void turnLeft(float duration, state *robot) // default should be 400ms
+{
+    // Motor A: Reverse
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    analogWrite(enA, 128);
+
+    // Motor B: Forward
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, 128);
+
+    delay(duration);
+    stopMotors();
     robot->direction =
         (robot_state->direction + 3) % 4;
 }
 
-void turnRight(state *robot)
+void turnRight(float duration, state *robot) // default should be 400ms
 {
-    //code here
+    // Motor A: Forward
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 128);
+
+    // Motor B: Reverse
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 128);
+
+    delay(duration);
+    stopMotors();
 
     robot->direction =
         (robot_state->direction + 1) % 4;
@@ -174,20 +223,20 @@ void executeMovement(char *moves)
     switch (instruction)
     {
         case 'F':
-            moveForward();
+            moveForward(300, &state_robot);
             break;
 
         case 'L':
-            turnLeft();
+            turnLeft(400, &state_robot);
             break;
 
         case 'R':
-            turnRight();
+            turnRight(400, &state_robot);
             break;
 
         case 'B':
-            turnRight();
-            turnRight();
+            turnRight(400, &state_robot);
+            turnRight(400, &state_robot);
             break;
     }
 }
@@ -306,18 +355,18 @@ void turnTowards(state *robot, int target[2])
 
         case 1:
             // Turn right 90°
-            turnRight();
+            turnRight(400, &state_robot);
             break;
 
         case 2:
             // Turn 180°
-            turnRight();
-            turnRight();
+            turnRight(400, &state_robot);
+            turnRight(400, &state_robot);
             break;
 
         case 3:
             // Turn left 90°
-            turnLeft();
+            turnLeft(400, &state_robot);
             break;
     }
 
@@ -472,6 +521,17 @@ void setup()
 
     Serial.println("RFID Scanner Initialized.");
     Serial.println("Ready to scan tags...");
+
+    // MOTOR SETUP
+    pinMode(enA, OUTPUT);
+    pinMode(in1, OUTPUT);
+    pinMode(in2, OUTPUT);
+
+    pinMode(enB, OUTPUT);
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
+
+    stopMotors();
 
     //SERVO SETUP
     right_servo.attach(right_claw);
