@@ -129,6 +129,58 @@ bool readCoordinates(byte blockAddr, int location[2])
 // NAVIGATION FUNCTION
 // ============================================================
 
+void moveForward(state *robot)
+{
+    //code here
+
+}
+
+void turnLeft(state *robot)
+{
+    //code here
+
+    robot->direction =
+        (robot_state->direction + 3) % 4;
+}
+
+void turnRight(state *robot)
+{
+    //code here
+
+    robot->direction =
+        (robot_state->direction + 1) % 4;
+}
+
+
+
+void executeMovement(char *moves)
+{
+    if (moves[0] == '\0')
+        return;
+
+    char instruction = moves[0];
+
+    switch (instruction)
+    {
+        case 'F':
+            moveForward();
+            break;
+
+        case 'L':
+            turnLeft();
+            break;
+
+        case 'R':
+            turnRight();
+            break;
+
+        case 'B':
+            turnRight();
+            turnRight();
+            break;
+    }
+}
+
 char *navigate(state *robot, int dest[2])
 {
     static char moves[100];
@@ -209,9 +261,58 @@ char *navigate(state *robot, int dest[2])
     // Position is NOT updated here.
     // RFID scans update the robot's actual position.
 
+    executeMovement(&moves);
     return moves;
 }
 
+void turnTowards(state *robot, int target[2])
+{
+    int dx = target[0] - robot->position[0];
+    int dy = target[1] - robot->position[1];
+
+    int targetDirection;
+
+    // Determine which direction the target is in
+    if (dx > 0)
+        targetDirection = XPOS;
+    else if (dx < 0)
+        targetDirection = XNEG;
+    else if (dy > 0)
+        targetDirection = YPOS;
+    else if (dy < 0)
+        targetDirection = YNEG;
+    else
+        return;  // Already at target
+
+    // Calculate required turn
+    int turn = (targetDirection - robot->direction + 4) % 4;
+
+    switch (turn)
+    {
+        case 0:
+            // Already facing target
+            break;
+
+        case 1:
+            // Turn right 90°
+            turnRight();
+            break;
+
+        case 2:
+            // Turn 180°
+            turnRight();
+            turnRight();
+            break;
+
+        case 3:
+            // Turn left 90°
+            turnLeft();
+            break;
+    }
+
+    // Update stored orientation
+    robot->direction = targetDirection;
+}
 
 // ============================================================
 // SET TARGET ANIMAL
@@ -317,7 +418,7 @@ bool adjacentToTarget()
     );
 
 
-    return (dx + dy == 1 || abs(dx * dy) == 1);
+    return (dx + dy == 1);
 }
 
 
@@ -582,6 +683,12 @@ void loop()
 
 
                 // TODO:
+                if (returning_home != 1)
+                {
+                turnTowards(&robot_state, target_animal);
+                //claw
+                }
+
                 // Actual claw/fetching code goes here.
                 //
                 // For now, fetching is assumed to succeed
